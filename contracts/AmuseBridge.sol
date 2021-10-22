@@ -3,25 +3,40 @@ pragma solidity 0.8.7;
 
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CountersUpgradeable.sol";
 import "./oracle/OracleBase.sol";
 
 contract AmuseBridge is OracleBase {
-    IERC20Upgradeable public AmuseToken;
-    function initialize(IERC20Upgradeable _amuseToken) public virtual initializer {
-        AmuseToken = _amuseToken;
-        super.initialize();
+    using CountersUpgradeable for CountersUpgradeable.Counter;
+    CountersUpgradeable.Counter public currentIdCount;
+
+    function _fulfill(address _user, uint256 _amount, uint256 _nonce) internal virtual override {
+        AmuseToken.transfer(_user, _amount);
+        totalValueLocked -= _amount;
+        AmuseToken.transfer(_user, _amount);
+        emit Withdraw(_user, _amount, _nonce, block.timestamp);
     }
 
-    function _fulfill(address user, uint256 amount, uint8 direction, uint256 nonce, uint256 deadline) internal virtual override {
-        if(direction == 0) {
-            AmuseToken.transferFrom(user, address(this), amount);
-            totalValueLocked += amount;
-            emit Deposit(user, amount, nonce, deadline, block.timestamp);
-        } else {
-            AmuseToken.transfer(user, amount);
-            totalValueLocked -= amount;
-            emit Withdraw(user, amount, nonce, deadline, block.timestamp);
-        }
+
+    function deposit(uint256 _amount) external whenNotPaused {
+        AmuseToken.transferFrom(_msgSender(), address(this), _amount);
+        uint256 _currentIdCount = currentIdCount.current();
+        currentIdCount.increment();
+
+        totalValueLocked += _amount;
+        uint256 _nonce = nonces[_msgSender()];
+
+        trades[_currentIdCount] = Trade(
+            _msgSender(),
+            _amount,
+            _nonce,
+            DEADLINE,
+            block.timestamp
+        );
+        nonces[_msgSender()] += 1;
+
+        emit Deposit(_msgSender(), _amount, _nonce, DEADLINE + block.timestamp, block.timestamp);
     }
+
+
 }
